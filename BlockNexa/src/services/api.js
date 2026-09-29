@@ -3,9 +3,10 @@
  * Connects React UI to FastAPI server on http://127.0.0.1:8000
  */
 
-const API_BASE_URL = typeof window !== 'undefined'
-  ? (window.location.port === '8000' || window.location.port === '5173' ? '' : 'http://127.0.0.1:8000')
-  : 'http://127.0.0.1:8000';
+const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL)
+  || (typeof window !== 'undefined'
+    ? (window.location.port === '8000' || window.location.port === '5173' ? '' : 'http://127.0.0.1:8000')
+    : 'http://127.0.0.1:8000');
 
 /**
  * Check backend connection and model availability
