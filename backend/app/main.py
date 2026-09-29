@@ -53,6 +53,7 @@ from app.math_formulation import (
     AssetDegradationModel,
     RailwayMILPFormulation
 )
+from app.database import db_manager
 
 app = FastAPI(
     title="BlockNexa — Railway Block Planning AI Backend",
@@ -123,8 +124,10 @@ def health_check():
             "trains_schedule": os.path.exists(os.path.join(DATA_DIR, "Trains_Schedule_CLEANED.csv")),
             "block_history": os.path.exists(os.path.join(DATA_DIR, "block_history.csv")),
             "maintenance_history": os.path.exists(os.path.join(DATA_DIR, "maintenance_history.csv")),
-        }
+        },
+        "database": db_manager.get_status()
     }
+
 
 
 # =====================================================================
@@ -134,13 +137,27 @@ def health_check():
 @app.post("/api/ml/predict-risk", response_model=DefectPredictionResponse)
 def predict_defect_risk(request: DefectPredictionRequest):
     """Predicts defect deferral risk and priority using the trained RandomForest model."""
-    return ml_service.predict_defect_risk(request)
+    res = ml_service.predict_defect_risk(request)
+    try:
+        req_data = request.model_dump() if hasattr(request, "model_dump") else request.dict()
+        res_data = res.model_dump() if hasattr(res, "model_dump") else res.dict()
+        db_manager.save_defect_prediction({"request": req_data, "result": res_data})
+    except Exception:
+        pass
+    return res
 
 
 @app.post("/api/ml/predict-delay", response_model=TrainDelayPredictionResponse)
 def predict_train_delay(request: TrainDelayPredictionRequest):
     """Predicts train delay impact in minutes using the trained GradientBoosting model."""
-    return ml_service.predict_train_delay(request)
+    res = ml_service.predict_train_delay(request)
+    try:
+        req_data = request.model_dump() if hasattr(request, "model_dump") else request.dict()
+        res_data = res.model_dump() if hasattr(res, "model_dump") else res.dict()
+        db_manager.save_delay_prediction({"request": req_data, "result": res_data})
+    except Exception:
+        pass
+    return res
 
 
 @app.get("/api/ml/metrics")
@@ -339,7 +356,40 @@ def get_shadow_possessions():
 @app.post("/api/planner/solve", response_model=OptimizationResponse)
 def solve_block_plan(request: OptimizationRequest):
     """Executes the combinatorial block bundling optimizer and returns coordinated plans."""
-    return planner_service.solve(request)
+    res = planner_service.solve(request)
+    try:
+        res_data = res.model_dump() if hasattr(res, "model_dump") else res.dict()
+        db_manager.save_block_plan(res_data)
+    except Exception:
+        pass
+    return res
+
+
+# =====================================================================
+# DATABASE MANAGEMENT ENDPOINTS
+# =====================================================================
+
+@app.get("/api/db/status")
+def get_database_status():
+    """Returns MongoDB connectivity status and collection counts."""
+    return db_manager.get_status()
+
+
+@app.post("/api/db/seed")
+def seed_database():
+    """Initializes MongoDB collections with initial railway reference datasets."""
+    return db_manager.seed_initial_data()
+
+
+@app.get("/api/db/recent-plans")
+def get_recent_plans(limit: int = Query(10, ge=1, le=50)):
+    """Retrieves recent saved block optimization schedules from MongoDB."""
+    plans = db_manager.get_recent_block_plans(limit)
+    return {
+        "total": len(plans),
+        "plans": plans
+    }
+
 
 
 @app.get("/api/timetable/trains")
